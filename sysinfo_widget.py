@@ -77,14 +77,13 @@ def get_swapfile_usage():
             lines = f.readlines()[1:]  # skip header
         for line in lines:
             parts = line.split()
-            if parts[0] == '/swapfile':
+            if 'swapfile' in parts[0]:
                 total = int(parts[2])
                 used = int(parts[3])
                 return used, total  # in KB
     except Exception:
         pass
     return None
-
 
 def color(val, warn, crit, minimal=False):
     if minimal:
@@ -177,7 +176,6 @@ def main():
         output_parts.append(f"{icon('zram')} {zram_str}")
     elif not hide_zram:
         output_parts.append(f"{icon('zram')} -")
-    print(" ".join(output_parts))
 
     if swapfile is not None:
         used_kb, total_kb = swapfile
@@ -186,6 +184,8 @@ def main():
             total_gb = format_gb(total_kb)
             swap_str = f"\x1b[31m{used_gb}/{total_gb}GB\x1b[0m" if not minimal else f"{used_gb}/{total_gb}GB"
             output_parts.append(f"💽 {swap_str}")
+
+    print(" ".join(output_parts))
 
 
 if __name__ == "__main__":
