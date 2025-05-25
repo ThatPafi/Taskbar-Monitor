@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+
+import psutil
+import subprocess
+import os
+import re
+import argparse
+
+def get_cpu_usage():
+    return psutil.cpu_percent(interval=0.5)
+
+def get_cpu_temp():
+    try:
+        output = subprocess.check_output(['sensors']).decode()
+        matches = re.findall(r'(Tctl|Tdie|Package id \d+|Core \d+|temp\d+):\s+\+?([\d.]+)°C', output)
+        if matches:
+            return float(matches[0][1])
+    except Exception:
+        pass
+    return None
+
+def get_ram_usage():
+    vm = psutil.virtual_memory()
+    return vm.used // (1024**2), vm.total // (1024**2)  # in MB
+
+def get_zram_usage():
+    total_used = 0
+    total_orig = 0
+    found = False
+    for zram in os.listdir('/sys/block/'):
+        if not zram.startswith('zram'):
+            continue
+        found = True
+        base = f'/sys/block/{zram}'
+        try:
+            with open(f'{base}/compr_data_size') as f:
+                used = int(f.read())
+            with open(f'{base}/orig_data_size') as f:
+                orig = int(f.read())
+            total_used += used
+            total_orig += orig
+        except Exception:
+            continue
+    if found and total_orig > 0:
+        return total_used // 1024, total_orig // 1024  # in KB
+
+    try:
+        with open('/proc/swaps') as f:
+            lines = f.readlines()[1:]
+        zram_lines = [l for l in lines if 'zram' in l]
+        used_kb = sum(int(l.split()[3]) for l in zram_lines)
+        total_kb = sum(int(l.split()[2]) for l in zram_lines)
+        if total_kb > 0:
+            return used_kb, total_kb
+    except Exception:
+        pass
+
+    return None
+
+def color(val, warn, crit, minimal=False):
+    if minimal:
+        return str(val)
+    if val >= crit:
+        return f"\x1b[31m{val}\x1b[0m"
+    elif val >= warn:
+        return f"\x1b[33m{val}\x1b[0m"
+    return f"\x1b[32m{val}\x1b[0m"
+
+def color_ratio(val, minimal=False):
+    if minimal:
+        return str(val)
+    if val < 2:
+        return f"\x1b[31m{val}\x1b[0m"
+    elif val < 3:
+        return f"\x1b[33m{val}\x1b[0m"
+    else:
+        return f"\x1b[32m{val}\x1b[0m"
+
+def format_gb(kb):
+    return round(kb / 1024 / 1024, 1)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--minimal', action='store_true', help='Minimal output without icons or color')
+    parser.add_argument('--ratio', action='store_true', help='Show ZRAM compression ratio if available')
+    parser.add_argument('--saved', action='store_true', help='Show ZRAM saved percentage if available')
+    parser.add_argument('--no-cpu', action='store_true', help='Hide CPU usage')
+    parser.add_argument('--no-cpu-temp', action='store_true', help='Hide CPU temperature')
+    parser.add_argument('--no-ram', action='store_true', help='Hide RAM usage')
+    parser.add_argument('--no-zram', action='store_true', help='Hide ZRAM usage')
+    args = parser.parse_args()
+
+    minimal = args.minimal
+    show_ratio = args.ratio
+    show_saved = args.saved
+    hide_cpu = args.no_cpu
+    hide_cpu_temp = args.no_cpu_temp
+    hide_ram = args.no_ram
+    hide_zram = args.no_zram
+
+    cpu = get_cpu_usage() if not hide_cpu else None
+    temp = get_cpu_temp() if not hide_cpu_temp else None
+    used_ram, total_ram = get_ram_usage() if not hide_ram else (None, None)
+    zram = get_zram_usage() if not hide_zram else None
+
+    icon = lambda label: label if minimal else {
+        'cpu': '🧠', 'temp': '🌡', 'ram': '💾', 'zram': '📦'
+    }[label]
+
+    output_parts = []
+
+    if cpu is not None:
+        output_parts.append(f"{icon('cpu')} {color(cpu, 70, 90, minimal)}%")
+
+    if temp is not None:
+        output_parts.append(f"{icon('temp')} {color(int(temp), 70, 85, minimal)}°C")
+
+    if used_ram is not None and total_ram is not None:
+        used_gb = round(used_ram / 1024, 1)
+        total_gb = round(total_ram / 1024, 1)
+        output_parts.append(f"{icon('ram')} {color(used_gb, total_gb*0.75, total_gb*0.9, minimal)}/{total_gb}GB")
+
+    if zram is not None:
+        z_used_kb, z_total_kb = zram
+        z_used_gb = format_gb(z_used_kb)
+        z_total_gb = format_gb(z_total_kb)
+        zram_str = f"{z_used_gb}/{z_total_gb}GB"
+        if show_ratio and z_used_kb > 0:
+            ratio_val = round(z_total_kb / z_used_kb, 1)
+            ratio_str = color_ratio(ratio_val, minimal)
+            zram_str += f" ({ratio_str}:1)"
+        if show_saved and z_used_kb > 0:
+            saved = 100 * (1 - (z_used_kb / z_total_kb))
+            zram_str += f" Saved {round(saved, 1)}%"
+        output_parts.append(f"{icon('zram')} {zram_str}")
+    elif not hide_zram:
+        output_parts.append(f"{icon('zram')} -")
+
+    print(" ".join(output_parts))
+
+if __name__ == "__main__":
+    main()
