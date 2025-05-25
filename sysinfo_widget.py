@@ -71,6 +71,21 @@ def get_zram_usage():
 
     return None
 
+def get_swapfile_usage():
+    try:
+        with open('/proc/swaps') as f:
+            lines = f.readlines()[1:]  # skip header
+        for line in lines:
+            parts = line.split()
+            if parts[0] == '/swapfile':
+                total = int(parts[2])
+                used = int(parts[3])
+                return used, total  # in KB
+    except Exception:
+        pass
+    return None
+
+
 def color(val, warn, crit, minimal=False):
     if minimal:
         return str(val)
@@ -103,6 +118,7 @@ def main():
     parser.add_argument('--no-ram', action='store_true', help='Hide RAM usage')
     parser.add_argument('--no-ram-cache', action='store_true', help='Hide RAM cache usage')
     parser.add_argument('--no-zram', action='store_true', help='Hide ZRAM usage')
+    parser.add_argument('--no-swapfile', action='store_true', help='Hide swapfile usage')
     args = parser.parse_args()
 
     minimal = args.minimal
@@ -113,9 +129,11 @@ def main():
     hide_ram = args.no_ram
     hide_ram_cache = args.no_ram_cache
     hide_zram = args.no_zram
+    hide_swapfile = args.no_swapfile
 
     cpu = get_cpu_usage() if not hide_cpu else None
     temp = get_cpu_temp() if not hide_cpu_temp else None
+    swapfile = get_swapfile_usage() if not hide_swapfile else None
     if not hide_ram:
         used_ram, total_ram, cached_ram = get_ram_usage()
     else:
@@ -160,6 +178,15 @@ def main():
     elif not hide_zram:
         output_parts.append(f"{icon('zram')} -")
     print(" ".join(output_parts))
+
+    if swapfile is not None:
+        used_kb, total_kb = swapfile
+        if used_kb > 0:
+            used_gb = format_gb(used_kb)
+            total_gb = format_gb(total_kb)
+            swap_str = f"\x1b[31m{used_gb}/{total_gb}GB\x1b[0m" if not minimal else f"{used_gb}/{total_gb}GB"
+            output_parts.append(f"💽 {swap_str}")
+
 
 if __name__ == "__main__":
     main()
