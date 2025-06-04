@@ -71,13 +71,13 @@ def get_zram_usage():
 
     return None
 
-def get_swapfile_usage():
+def get_swap_usage():
     try:
         with open('/proc/swaps') as f:
             lines = f.readlines()[1:]  # skip header
         for line in lines:
             parts = line.split()
-            if 'swapfile' in parts[0]:
+            if parts[0].endswith('swap') or parts[0] == '/swapfile' or '/swap/' in parts[0]:
                 total = int(parts[2])
                 used = int(parts[3])
                 return used, total  # in KB
@@ -117,7 +117,7 @@ def main():
     parser.add_argument('--no-ram', action='store_true', help='Hide RAM usage')
     parser.add_argument('--no-ram-cache', action='store_true', help='Hide RAM cache usage')
     parser.add_argument('--no-zram', action='store_true', help='Hide ZRAM usage')
-    parser.add_argument('--no-swapfile', action='store_true', help='Hide swapfile usage')
+    parser.add_argument('--no-swap', action='store_true', help='Hide swap usage')
     args = parser.parse_args()
 
     minimal = args.minimal
@@ -128,11 +128,11 @@ def main():
     hide_ram = args.no_ram
     hide_ram_cache = args.no_ram_cache
     hide_zram = args.no_zram
-    hide_swapfile = args.no_swapfile
+    hide_swap = args.no_swap
 
     cpu = get_cpu_usage() if not hide_cpu else None
     temp = get_cpu_temp() if not hide_cpu_temp else None
-    swapfile = get_swapfile_usage() if not hide_swapfile else None
+    swap = get_swap_usage() if not hide_swap else None
     if not hide_ram:
         used_ram, total_ram, cached_ram = get_ram_usage()
     else:
@@ -177,13 +177,14 @@ def main():
     elif not hide_zram:
         output_parts.append(f"{icon('zram')} -")
 
-    if swapfile is not None:
-        used_kb, total_kb = swapfile
+    if swap is not None:
+        used_kb, total_kb = swap
+        used_gb = format_gb(used_kb)
+        total_gb = format_gb(total_kb)
+        swap_str = f"{used_gb}/{total_gb}GB"
         if used_kb > 0:
-            used_gb = format_gb(used_kb)
-            total_gb = format_gb(total_kb)
-            swap_str = f"\x1b[31m{used_gb}/{total_gb}GB\x1b[0m" if not minimal else f"{used_gb}/{total_gb}GB"
-            output_parts.append(f"💽 {swap_str}")
+            swap_str = f"\x1b[31m{swap_str}\x1b[0m" if not minimal else swap_str
+        output_parts.append(f"{'💽' if not minimal else 'SWP'} {swap_str}")
 
     print(" ".join(output_parts))
 
